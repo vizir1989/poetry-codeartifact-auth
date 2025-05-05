@@ -263,25 +263,34 @@ def auth_config_from_env() -> AuthConfig:
 
 
 def auth_params_from_config(config: AuthConfig, repo_name: str) -> AwsLoginParameters:
-    """Get AWS authentication parameters"""
     if config.method in (AwsAuthMethod.VAULT, AwsAuthMethod.ENV):
         if config.method == AwsAuthMethod.VAULT:
             profile = config.profile_for_repo(repo_name)
             LOG.info(f"authenticating_using_vault profile={profile!r}")
             env_auth_vars = _aws_auth_vars_from_vault(profile)
-        elif config.method == AwsAuthMethod.ENV:
+            return AwsAuthParameters.from_env_auth_vars(env_auth_vars)
+
+        if config.method == AwsAuthMethod.ENV:
+            token_file = os.getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
+            role_arn = os.getenv("AWS_ROLE_TO_ASSUME")
+            if token_file and role_arn:
+                LOG.info("Using assume-role-with-web-identity flow")
+                return assume_role_with_web_identity(role_arn, token_file)
+
             env_auth_vars = dict(os.environ)
-        else:
-            raise ValueError("Invalid authentication method")
-        return AwsAuthParameters.from_env_auth_vars(env_auth_vars)
+            return AwsAuthParameters.from_env_auth_vars(env_auth_vars)
+
     if config.method == AwsAuthMethod.SSO:
         profile = config.profile_for_repo(repo_name)
         LOG.info(f"authenticating_using_sso profile={profile!r}")
         _ensure_sso_logged_in(profile)
-        return AwsProfileParameters(config.profile_for_repo(repo_name))
+        return AwsProfileParameters(profile)
+
     if config.method == AwsAuthMethod.NONE:
         return None
+
     raise ValueError("Invalid authentication method")
+
 
 
 def _refresh_single_repo_auth(repo_name: str, token: str):
@@ -520,6 +529,26 @@ def _aws_profile_from_env() -> str:
 
 def _auth_method_from_env() -> str:
     return os.getenv("POETRY_CA_AUTH_METHOD", "sso")
+
+
+def assume_role_with_web_identity(role_arn: str, token_file: str, session_name: str = "poetry-auth", duration_seconds: int = 900) -> AwsAuthParameters:
+    with open(token_file, "r", encoding="utf-8") as f:
+        token = f.read().strip()
+
+    client = boto3.client("sts")
+    response = client.assume_role_with_web_identity(
+        RoleArn=role_arn,
+        RoleSessionName=session_name,
+        WebIdentityToken=token,
+        DurationSeconds=duration_seconds,
+    )
+    creds = response["Credentials"]
+
+    return AwsAuthParameters(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        aws_session_token=creds["SessionToken"],
+    )
 
 
 if __name__ == "__main__":
