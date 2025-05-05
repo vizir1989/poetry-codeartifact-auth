@@ -243,11 +243,22 @@ class AuthConfig:
                     f"AWS default profile must be set for authentication method {self.method}"
                 )
         elif self.method == AwsAuthMethod.ENV:
+            # Проверяем наличие либо стандартных AWS креденшиалов, либо веб-токена
+            env_vars = dict(os.environ)
+            token_file = env_vars.get("AWS_WEB_IDENTITY_TOKEN_FILE")
+            role_arn = env_vars.get("AWS_ROLE_TO_ASSUME")
+            
+            # Если предоставлен веб-токен и роль, то не требуем стандартные переменные
+            if token_file and role_arn:
+                LOG.info("Web identity token file and role ARN found, skipping standard AWS credentials check")
+                return
+                
+            # Иначе требуем стандартные переменные
             try:
-                AwsAuthParameters.from_env_auth_vars(dict(os.environ))
+                AwsAuthParameters.from_env_auth_vars(env_vars)
             except MissingAuthVarsException as exc:
                 raise CodeArtifactAuthConfigException(
-                    "AWS_* authentication vars must be set"
+                    "Either AWS_* authentication vars or AWS_WEB_IDENTITY_TOKEN_FILE with AWS_ROLE_TO_ASSUME must be set"
                 ) from exc
 
     def profile_for_repo(self, repo_name: str):
