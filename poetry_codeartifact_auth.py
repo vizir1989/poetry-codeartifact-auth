@@ -246,7 +246,7 @@ class AuthConfig:
             # Проверяем наличие либо стандартных AWS креденшиалов, либо веб-токена
             env_vars = dict(os.environ)
             token_file = env_vars.get("AWS_WEB_IDENTITY_TOKEN_FILE")
-            role_arn = env_vars.get("AWS_ROLE_TO_ASSUME")
+            role_arn = env_vars.get("AWS_ROLE_ARN")
             
             # Если предоставлен веб-токен и роль, то не требуем стандартные переменные
             if token_file and role_arn:
